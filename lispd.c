@@ -65,6 +65,12 @@
 #include "lispd_map_cache_db.h"
 
 
+#include <linux/netfilter.h>            /* for NF_ACCEPT */
+#include <errno.h>
+
+#include <libnetfilter_queue/libnetfilter_queue.h>
+
+
 void event_loop();
 void signal_handler(int);
 int build_timers_event_socket();
@@ -311,29 +317,83 @@ int main(int argc, char **argv)
 //     if (!dump_routing_table(AF_INET, RT_TABLE_MAIN))
 //         syslog(LOG_INFO, "Dumping main routing table failed");
 
-    
-    
-    syslog(LOG_INFO, "*************** Creating tun interface... ***************");
 
-    //char *device = "eth0";
-    char *tun_dev_name = TUN_IFACE_NAME;
- 
-    
-    
-    create_tun(tun_dev_name,
-                TUN_RECEIVE_SIZE,
-                TUN_MTU,
-                &tun_receive_fd,
-                &tun_ifindex,
-                &tun_receive_buf);
-    
-    
-    tun_bring_up_iface_v4_eid(get_main_eid(AF_INET),tun_dev_name);
 
-    tun_add_v6_eid_to_iface(get_main_eid(AF_INET6),tun_dev_name,tun_ifindex);
 
-    install_default_route(tun_ifindex,AF_INET);
-    install_default_route(tun_ifindex,AF_INET6);
+
+
+
+
+        struct nfq_handle *h;
+        struct nfq_q_handle *qh;
+        struct nfnl_handle *nh;
+        int nfqfd;
+        int rv;
+        char buf[4096] __attribute__ ((aligned));
+
+        printf("opening library handle\n");
+        h = nfq_open();
+        if (!h) {
+            fprintf(stderr, "error during nfq_open()\n");
+            exit(1);
+        }
+
+        printf("unbinding existing nf_queue handler for AF_INET (if any)\n");
+        if (nfq_unbind_pf(h, AF_INET) < 0) {
+            fprintf(stderr, "error during nfq_unbind_pf()\n");
+            exit(1);
+        }
+
+        printf("binding nfnetlink_queue as nf_queue handler for AF_INET\n");
+        if (nfq_bind_pf(h, AF_INET) < 0) {
+            fprintf(stderr, "error during nfq_bind_pf()\n");
+            exit(1);
+        }
+
+//         printf("binding this socket to queue '0'\n");
+//         qh = nfq_create_queue(h,  0, &cb, NULL);
+//         if (!qh) {
+//             fprintf(stderr, "error during nfq_create_queue()\n");
+//             exit(1);
+//         }
+
+        printf("setting copy_packet mode\n");
+        if (nfq_set_mode(qh, NFQNL_COPY_PACKET, 0xffff) < 0) {
+            fprintf(stderr, "can't set packet_copy mode\n");
+            exit(1);
+        }
+
+        nfqfd = nfq_fd(h);
+
+
+
+
+
+
+
+    
+    
+//     syslog(LOG_INFO, "*************** Creating tun interface... ***************");
+// 
+//     //char *device = "eth0";
+//     char *tun_dev_name = TUN_IFACE_NAME;
+//  
+//     
+//     
+//     create_tun(tun_dev_name,
+//                 TUN_RECEIVE_SIZE,
+//                 TUN_MTU,
+//                 &tun_receive_fd,
+//                 &tun_ifindex,
+//                 &tun_receive_buf);
+//     
+//     
+//     tun_bring_up_iface_v4_eid(get_main_eid(AF_INET),tun_dev_name);
+// 
+//     tun_add_v6_eid_to_iface(get_main_eid(AF_INET6),tun_dev_name,tun_ifindex);
+// 
+//     install_default_route(tun_ifindex,AF_INET);
+//     //install_default_route(tun_ifindex,AF_INET6);
 
     open_iface_binded_sockets();
 
@@ -344,12 +404,15 @@ int main(int argc, char **argv)
     //open_device_binded_raw_socket(device,AF_INET6);
 
     
-    syslog(LOG_INFO, "*************** Created tun interface *****************");
+//     syslog(LOG_INFO, "*************** Created tun interface *****************");
 
     printf("socket data lisp input (pre): %d\n",v4_receive_fd);
     
-    v4_receive_fd = open_data_input_socket(AF_INET);
+    //v4_receive_fd = open_data_input_socket(AF_INET);
 
+    //v4_receive_fd = open_device_binded_raw_socket("eth0",AF_INET);
+    v4_receive_fd = nfqfd;
+    
     printf("socket data lisp input: %d\n",v4_receive_fd);
     
     /*
@@ -400,8 +463,9 @@ void event_loop()
         }
         
         if (FD_ISSET(v4_receive_fd, &readfds)) {
-            printf("Recieved something in the input buffer (4341)\n");
-            process_input_packet(v4_receive_fd, tun_receive_fd);
+            //printf("Recieved something in the input buffer (4341)\n");
+            printf("Recieved something in the NETFILTER QUEUE\n");
+            //process_input_packet(v4_receive_fd, tun_receive_fd);
         }
         if (FD_ISSET(tun_receive_fd, &readfds)) {
             printf("Recieved something in the tun buffer\n");
