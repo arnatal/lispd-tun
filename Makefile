@@ -16,7 +16,7 @@ CC		= gcc
 endif
 GENGETOPT	= gengetopt
 CFLAGS		+= -Wall -g -DDEBUG=3 -DTESTLOCALEID
-LIBS		= -lconfuse -lssl -lcrypto -lrt -lm
+LIBS		= -lconfuse -lssl -lcrypto -lrt -lm -lnfnetlink -lnetfilter_queue
 INC		= lispd.h
 MAKEFILE	= Makefile
 OBJS		= cmdline.o lispd.o lispd_config.o lispd_syslog.o	\
